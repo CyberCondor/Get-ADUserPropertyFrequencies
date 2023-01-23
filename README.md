@@ -1,12 +1,9 @@
 # Get-ADUserPropertyFrequencies.ps1
 ### SYNOPSIS
-Analyze Active Directory users by frequency of assigned properties.
-
-To answer questions like: *e.g., how many departments are in this AD and how many users are in each department?* 
-
-Find out how many AD users are assigned a specific property like "AdminCount" or "PasswordNotRequired".
-
-Find out how many unique property assignments exist for a specific property.
+Analyze Active Directory users by frequency of assigned properties.<br>
+To answer questions like: *e.g., how many departments are in this AD and how many users are in each department?*<br>
+Find out how many AD users are assigned a specific property like "AdminCount" or "PasswordNotRequired".<br>
+Find out how many unique property assignments exist for a specific property.<br>
 
 ### DESCRIPTION
 Analyze Active Directory users by frequency of assigned properties.
@@ -29,8 +26,7 @@ The bread and butter of this script is the function **Get-PropertyFrequencies**
 This function takes two mandatory arguments ```([string]$Property, [PSObject]$Object)``` - given ```[string]$Property``` is an existing property in ```[PSObject]$Object```
 
 ### Logic
-Get all unique values of a property found in the object
-
+Get all unique values of a property found in the object<br>
 Initialize a new object with a property of the specified property and a property of Count
 
 For each unique value in all the unique values found for the property in the object,
