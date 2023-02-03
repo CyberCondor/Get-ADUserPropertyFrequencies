@@ -2,7 +2,7 @@
 .SYNOPSIS
 To answer questions like -> e.g., how many departments are in this AD and how many users are in each department?
 Analyze Active Directory users by frequency of assigned properties. 
-Find out how many AD users are assigned a specifc property like "AdminCount" or "PasswordNotRequired".
+Find out how many AD users are assigned a specific property like "AdminCount" or "PasswordNotRequired".
 Find out how many unique property assignments exist for a specific property.
 .DESCRIPTION
 Analyze Active Directory users by frequency of assigned properties.
@@ -31,8 +31,8 @@ catch{$errMsg = $_.Exception.message
     break
 }
 
-function Get-ExistingUsers_AD{
-    try{$ExistingUsers = Get-ADUser -Server $Server -Filter * -Properties $Properties_AD | Select $Properties_AD -ErrorAction Stop
+function Get-ExistingUsers_AD($ADUserProperties){
+    try{$ExistingUsers = Get-ADUser -Server $Server -Filter * -Properties $ADUserProperties | Select $ADUserProperties -ErrorAction Stop
         return $ExistingUsers
     }
     catch{$errMsg = $_.Exception.message
@@ -77,117 +77,103 @@ function Get-PropertyFrequencies($Property, $Object){
                 $isDate = $true
             }
         }
-        $PropertyFrequencies += New-Object -TypeName PSobject -Property @{$Property=$($UniqueValue.$Property);Count=0} # Copy Uniques to Object Array and Init Count as 0
+        $PropertyFrequencies += New-Object -TypeName PSobject -Property @{$Property=$($UniqueValue.$Property);Count=0;OccurringFrequency="100%"} # Copy Uniques to Object Array and Init Count as 0
     }
-    if($isDate -eq $true){
+    if(($isDate -eq $true) -and (($Object | Select $Property | Get-Member).Definition -like "*datetime*")){
         foreach($PropertyFrequency in $PropertyFrequencies){
             if(($PropertyFrequency.$Property) -and ([string]$PropertyFrequency.$Property -as [DateTime])){
                 try{$PropertyFrequency.$Property = $PropertyFrequency.$Property.ToString("yyyy-MM")
                 }
-                catch{# Catch Nothing
+                catch{# Nothing
                 }
             }
         }
-        foreach($PropertyName in $Object){
-            if(($PropertyName.$Property) -and ([string]$PropertyName.$Property -as [DateTime])){
-                try{$PropertyName.$Property = $PropertyName.$Property.ToString("yyyy-MM")
-                }
-                catch{# Catch Nothing
+        foreach($PropertyName in $Object.$Property){                                                            # For each value in Object
+            if($Total -gt 0){Write-Progress -id 1 -Activity "Finding $Property Frequencies -> ( $([int]$ProgressCount) / $Total )" -Status "$(($ProgressCount++/$Total).ToString("P")) Complete"}
+            foreach($PropertyFrequency in $PropertyFrequencies){                                                # Search through all existing Property values
+                if(($PropertyName -eq $null) -and ($PropertyFrequency -eq $null)){$PropertyFrequency.Count++}   # If Property value is NULL, then add to count - still want to track this
+                elseif($PropertyName -ceq $PropertyFrequency.$Property){$PropertyFrequency.Count++}             # Else If Property value is current value, then add to count
+                else{
+                    try{if($PropertyName.ToString("yyyy-MM") -ceq $PropertyFrequency.$Property){$PropertyFrequency.Count++}
+                    }
+                    catch{# Nothing
+                    }
                 }
             }
         }
     }
-    foreach($PropertyName in $Object.$Property){                                                            # For each value in Object
-        Write-Progress -id 1 -Activity "Finding $Property Frequencies -> ( $([int]$ProgressCount) / $Total )" -Status "$(($ProgressCount++/$Total).ToString("P")) Complete"
-        foreach($PropertyFrequency in $PropertyFrequencies){                                                # Search through all existing Property values
-            if(($PropertyName -eq $null) -and ($PropertyFrequency -eq $null)){$PropertyFrequency.Count++}   # If Property value is NULL, then add to count - still want to track this
-            elseif($PropertyName -ceq $PropertyFrequency.$Property){$PropertyFrequency.Count++}             # Else If Property value is current value, then add to count
+    else{
+        foreach($PropertyName in $Object.$Property){                                                            # For each value in Object
+            if($Total -gt 0){Write-Progress -id 1 -Activity "Finding $Property Frequencies -> ( $([int]$ProgressCount) / $Total )" -Status "$(($ProgressCount++/$Total).ToString("P")) Complete"}
+            foreach($PropertyFrequency in $PropertyFrequencies){                                                # Search through all existing Property values
+                if(($PropertyName -eq $null) -and ($PropertyFrequency -eq $null)){$PropertyFrequency.Count++}   # If Property value is NULL, then add to count - still want to track this
+                elseif($PropertyName -ceq $PropertyFrequency.$Property){$PropertyFrequency.Count++}             # Else If Property value is current value, then add to count
+            }
         }
     }
     Write-Progress -id 1 -Completed -Activity "Complete"
-    
+    if($Total -gt 0){
+        foreach($PropertyFrequency in $PropertyFrequencies){
+            $PropertyFrequency.OccurringFrequency = ($PropertyFrequency.Count/$Total).ToString("P")
+        }
+    }
     return $PropertyFrequencies
 }
 function DisplayFrequencies($Property, $PropertyFrequencies){
     write-output "`n"
-    $PropertyFrequencies | select Count,$Property | sort Count,$Property | unique -AsString | ft
+    $PropertyFrequencies | select Count,$Property,OccurringFrequency | sort Count,$Property,OccurringFrequency | unique -AsString | ft
     write-output "Total Number of Unique $($Property)(s): $(($PropertyFrequencies | select $Property,Count | sort Count,$Property | unique -AsString ).count)"
 }
 
+
 function main{
     $quitProgram = $false
-
     While($quitProgram -eq $false){
         write-Host "`n Active Directory USER Properties available to query:"
-        foreach($Property in $Properties_AD){Write-Host "`t$Property"}
+        foreach($Property in $ADUserProperties){Write-Host "`t$Property"}
 
         $Property = Read-Host "`nEnter one of the properties listed above or 'q' to quit"
 
+        $SmallerListOfProperties = @()
         $found = $false
-        foreach($P in $Properties_AD){if($P -eq $Property){$found = $true}}
-        if($found -eq $true){
-            $Frequencies = Get-PropertyFrequencies $Property $ExistingUsers_AD
-            DisplayFrequencies $Property $Frequencies 
-            Read-Host "`nPress Enter for Main Menu"
-            clear
+        $index = 0
+        if($Property -eq "q"){$quitProgram = $true}
+        else{
+            foreach($P in $ADUserProperties){
+                if($P -like "*$Property*"){
+                    if($P -eq $Property){$found = $true}
+                    else{$SmallerListOfProperties += New-Object -TypeName PSobject -Property @{Property=$P;Index=$index++}}
+                }
+            }
+            if(($found -eq $false) -and ($SmallerListOfProperties -ne $null)){
+                $SmallerListOfProperties | ft
+                $Property = Read-Host "`nEnter one of the properties or index numbers listed above or 'q' to quit"
+                if($Property -eq "q"){$quitProgram = $true}
+                else{
+                    foreach($Q in $SmallerListOfProperties){    
+                        if(($Property -eq $Q.Index) -or ($Property -eq $Q.Property)){$Property = $Q.Property; $found = $true}
+                    }
+                }
+            }
+            if($found -eq $true){
+                $Frequencies = Get-PropertyFrequencies $Property $ExistingUsers_AD
+                DisplayFrequencies $Property $Frequencies 
+                Read-Host "`nPress Enter for Main Menu"
+                clear
+            }
+            else{Write-Output "`nProperty '$Property' is not found in the list of properties available to query. `n" ; sleep 3.33}
         }
-        elseif($Property -eq "q"){$quitProgram = $true}
-        else{Write-Output "`nProperty '$Property' is not found in the list of properties available to query. `n"}
     }
 }
 
-$Properties_AD = @("Name",
-                   "GivenName",
-                   "Surname",
-                   "DisplayName",
-                   "SamAccountName",
-                   "Division",
-                   "telephoneNumber",
-                   "Department",
-                   "Title",
-                   "Office",
-                   "Description",
-                   "Manager",
-                   "Enabled",
-                   "LockedOut",
-                   "whenCreated",
-                   "whenChanged",
-                   "AccountExpirationDate",
-                   "Deleted",             
-                   "sDRightsEffective",                
-                   "SIDHistory",                  
-                   "Certificates",
-                   "isCriticalSystemObject",
-                   "SmartcardLogonRequired",
-                   "TrustedForDelegation",
-                   "TrustedToAuthForDelegation",
-                   "ProtectedFromAccidentalDeletion",
-                   "MNSLogonAccount",
-                   "AllowReversiblePasswordEncryption",
-                   "AuthenticationPolicy",
-                   "logonCount"
-                   "LastLogonDate",
-                   "lastLogoff",
-                   "LastBadPasswordAttempt",
-                   "BadLogonCount",
-                   "badPwdCount",
-                   "badPasswordTime",
-                   "CannotChangePassword",
-                   "DoesNotRequirePreAuth",
-                   "PasswordLastSet",
-                   "PasswordExpired",
-                   "PasswordNeverExpires",
-                   "PasswordNotRequired",
-                   "adminCount",
-                   "ScriptPath")
+$ADUserProperties = Get-ADUser -Server $Server -Filter * -Properties * | Select -First 1 | Get-Member | where{($_.MemberType -eq "Property") -and ($_.Definition -notlike "*list*")} | select -ExpandProperty Name
 
-$ExistingUsers_AD = Get-ExistingUsers_AD
+$ExistingUsers_AD = Get-ExistingUsers_AD $ADUserProperties
 if($ExistingUsers_AD -eq $null){break}
 $UserRunningThisProgram = Get-UserRunningThisProgram $ExistingUsers_AD
-if($UserRunningThisProgram -eq $null){
-    Write-Host "`n`t`tHello 'STRANGER' I could not find you in this Active Directory Domain...`n"
+if($UserRunningThisProgram -ne $null){
+    Write-Host "`n`t`tHello '$($UserRunningThisProgram.Name) ($($UserRunningThisProgram.Title))'!" -ForegroundColor Green
 }
-else{Write-Host "`n`t`tHello '$($UserRunningThisProgram.Name) ($($UserRunningThisProgram.Title))'!" -ForegroundColor Green}
 
 Write-Host "This program will display various property frequencies from 'AD Users'`n"
 
